@@ -29,17 +29,17 @@ let win=Number($('window').value),arr=history.slice(-win),d=predict(arr);if(d===
 $('prediction').textContent=d;$('frequency').textContent=`${c[d]}/${history.length} (${(100*c[d]/history.length).toFixed(1)}%)`;
 if(scored){$('accuracy').textContent=(100*hits/scored).toFixed(1)+'%';$('accuracyText').textContent=`${hits} correct out of ${scored} scored predictions in this connection.`}else{$('accuracy').textContent='Measuring…';$('accuracyText').textContent='Waiting for the first prediction to be tested against a later tick.'}}
 function closeSocket(){if(ws){let old=ws;ws=null;old.onmessage=old.onopen=old.onerror=old.onclose=null;try{old.close()}catch(e){}}}
-function stop(msg='Stopped'){active=false;closeSocket();status(msg,false)}
-function start(){stop('Connecting…');history=[];scored=0;hits=0;$('price').textContent='—';$('latest').textContent='—';$('marketName').textContent=labels[$('market').value]||$('market').value;render();active=true;
+function stop(msg='Stopped'){active=false;if(heartbeat){clearInterval(heartbeat);heartbeat=null;}closeSocket();status(msg,false)}
+let heartbeat=null;function start(){stop('Connecting…');if(heartbeat){clearInterval(heartbeat);heartbeat=null;}history=[];scored=0;hits=0;$('price').textContent='—';$('latest').textContent='—';$('marketName').textContent=labels[$('market').value]||$('market').value;render();active=true;
 try{ws=new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${APP_ID}`);
-ws.onopen=()=>{if(!active)return;status('Connected; requesting history',true);ws.send(JSON.stringify({ticks_history:$('market').value,count:Number($('window').value),end:'latest',style:'ticks',req_id:reqHistory}))};
+ws.onopen=()=>{if(!active)return;status('Connected; requesting history',true);$('progress').textContent='Connected to Deriv. Requesting recent tick history…';heartbeat=setInterval(()=>{if(active&&ws&&ws.readyState===WebSocket.OPEN){try{ws.send(JSON.stringify({ping:1}))}catch(e){}}},30000);ws.send(JSON.stringify({ticks_history:$('market').value,count:Number($('window').value),end:'latest',style:'ticks',req_id:reqHistory}))};
 ws.onmessage=e=>{if(!active)return;let m;try{m=JSON.parse(e.data)}catch(_){return}
 if(m.error){$('progress').textContent='Deriv API error: '+(m.error.message||'Unknown error');status('API error');return}
 if(m.req_id===reqHistory&&m.history){const prices=m.history.prices||[];const pip=m.pip_size;prices.forEach(q=>{let d=digitFromQuote(q,pip);if(d!==null)history.push(d)});history=history.slice(-Number($('window').value));render();$('progress').textContent=`Loaded ${history.length} historical ticks. Starting live feed…`;ws.send(JSON.stringify({ticks:$('market').value,subscribe:1,req_id:reqStream}));return}
 if(!m.tick)return;let t=m.tick,q=Number(t.quote);if(!Number.isFinite(q))return;let d=digitFromQuote(t.quote,t.pip_size);if(d===null)return;let win=Number($('window').value);if(history.length>=30){let before=history.slice(-win),p=predict(before);if(p!==null){scored++;if(p===d)hits++}}
 history.push(d);history=history.slice(-win);let precision=Number.isInteger(t.pip_size)?t.pip_size:((String(t.quote).split('.')[1]||'').length);$('price').textContent=q.toFixed(precision);$('latest').textContent=d;status('Receiving live ticks',true);render()};
-ws.onerror=()=>{if(active){status('Connection error');$('progress').textContent='Connection error. Check internet and retry.'}};
-ws.onclose=()=>{if(active){active=false;status('Disconnected');$('progress').textContent='Connection closed. Press Connect & Analyse to retry.'}};
+ws.onerror=()=>{if(active){status('Connection error');$('progress').textContent='WebSocket error. Check the connection status and try again.'}};
+ws.onclose=(event)=>{if(heartbeat){clearInterval(heartbeat);heartbeat=null;}if(active){active=false;status('Disconnected');$('progress').textContent='Connection closed (code '+event.code+(event.reason?'; reason: '+event.reason:'; no reason supplied')+'). Tell me this full message so I can diagnose the cause.'}};
 }catch(e){stop('Could not connect')}}
 $('start').onclick=start;$('stop').onclick=()=>stop();$('market').onchange=()=>{if(active)start();else $('marketName').textContent=labels[$('market').value]||$('market').value};$('window').onchange=()=>{history=history.slice(-Number($('window').value));render()};render()})();
 </script></body></html>
